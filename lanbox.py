@@ -217,6 +217,7 @@ class LanboxMethods():
             mode = 'unknown'
             if response in T6:
                 mode = T6[response]
+            if response == "": mode = 'off'
             return mode
         if mode != '':
             ret = ''
@@ -239,6 +240,7 @@ class LanboxMethods():
             mode = 'unknown'
             if response in T7:
                 mode = T7[response]
+            if response == "": mode = 'off'
             return mode
         if mode != '':
             ret = ''
@@ -320,7 +322,7 @@ class LanboxMethods():
             time = 0
             try:
                 if int(response,16) in range(len(ApA)):
-                    time = ApA[int(response)]
+                    time = ApA[int(response,16)]
                 return time
             except:
                 return
@@ -612,18 +614,18 @@ class LanboxMethods():
         ret['remainingHoldTime'] = self._from_hex(response[14:18])*0.05
         ret['activeCueList'] = self._from_hex(response[18:22])
         ret['activeCueStep'] = self._from_hex(response[22:24])
-        ret['chaseMode'] = self._Table6(response[22:24])
-        ret['layerSpeed'] = self._chaseSpeed(response[24:26])
-        ret['fadeType'] = self._Table7(response[26:28])
-        ret['fadeTime'] = self._AppendixA(response[28:30])
-        ret['cueStepFadeTime'] = self._AppendixA(response[30:32])
-        ret['remainingFadeTime'] = self._from_hex(response[32:36])*0.05
-        ret['layerTransparency'] = self._from_hex(response[36:38])/2.55
-        ret['loadingIndication'] = self._from_hex(response[38:40])*0.05/255
-        ret['pauseStatus'] = bool(self._from_hex(response[40:42]))
-        ret['sysExDeviceId'] = self._from_hex(response[42:44])
-        ret['autoStatus'] = bool(self._from_hex(response[42:44]))
-        ret['currentCueStep'] = self._AppendixB(response[44:58])
+        ret['chaseMode'] = self._Table6(response[24:26])
+        ret['layerSpeed'] = self._chaseSpeed(response[26:28])
+        ret['fadeType'] = self._Table7(response[28:30])
+        ret['fadeTime'] = self._AppendixA(response[30:32])
+        ret['cueStepFadeTime'] = self._AppendixA(response[32:34])
+        ret['remainingFadeTime'] = self._from_hex(response[34:38])*0.05
+        ret['layerTransparency'] = self._from_hex(response[38:40])/2.55
+        ret['loadingIndication'] = self._from_hex(response[40:42])*0.05/255
+        ret['pauseStatus'] = bool(self._from_hex(response[42:44]))
+        ret['sysExDeviceId'] = self._from_hex(response[44:46])
+        ret['autoStatus'] = bool(self._from_hex(response[46:48]))
+        ret['currentCueStep'] = self._AppendixB(response[48:60])
         return ret
     def layerSetID (self, oldLayer, newLayer):
         '''Sets a layer ID'''
