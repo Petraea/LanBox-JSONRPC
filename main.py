@@ -3,10 +3,13 @@ from twisted.protocols.basic import LineReceiver
 from twisted.internet import reactor
 import json
 import inspect
+import ConfigParser
 
 import lanbox
 
-PORT = 4444
+c = ConfigParser.ConfigParser()
+c.read('config.ini')
+PORT = c.getint('JSONRPC','port')
 
 class Methods():
     def __init__(self):
