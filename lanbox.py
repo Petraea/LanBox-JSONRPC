@@ -61,10 +61,10 @@ class LanboxMethods():
         if s is None: 
             closeafter = True
             s = self._connectToLB()
-#        print('*'+command+'#')
+        print('*'+command+'#')
         s.sendall('*'+command+'#')
         ret = s.recv(512)
-#        print(ret)
+        print(ret)
         if ret != '?':
             ret = ret[1:-2]
         if closeafter:
@@ -589,9 +589,10 @@ class LanboxMethods():
         '''Returns a dict of all layers with nested layer attributes'''
         ret = {}
         response = self._lanbox(commandDict['CommonGetLayers'])
-        for c in self._chunk(response,24):
+        for n, c in enumerate(self._chunk(response,24)):
             layer = self._from_hex(c[:2])
             ret[layer]={}
+            ret[layer]['mixOrder']=n
             ret[layer]['layerID']=self._from_hex(c[2:4])
             ret[layer]['layerAttr']=self._Table4(c[4:6])
             ret[layer]['cueList']=self._from_hex(c[6:10])
