@@ -7,7 +7,7 @@ from twisted.internet import reactor, defer
 commandDict = {'CommonGetAppID':'00050000','Common16BitMode':'65','CommonReboot':'B5','CommonSaveData':'A9','ChannelSetData':'C9','ChannelReadData':'CD','ChannelReadStatus':'CE','ChannelSetOutputEnable':'CA','ChannelSetActive':'CC','ChannelSetSolo':'CB','CommonGetLayers':'B1','LayerGetStatus':'0A','LayerSetID':'45','LayerSetOutput':'48','LayerSetFading':'46','LayerSetSolo':'4A','LayerSetAutoOutput':'64','LayerSetMixMode':'47','LayerSetTransparencyDepth':'63','LayerSetLocked':'43','LayerConfigure':'44','LayerGo':'56','LayerClear':'57','LayerPause':'58','LayerResume':'59','LayerNextStep':'5A','LayerPreviousStep':'5B','LayerNextCue':'73','LayerPreviousCue':'74','LayerSetChaseMode':'4B','LayerSetChaseSpeed':'4C','LayerSetFadeType':'4D','LayerSetFadeTime':'4E','LayerSetEditRunMode':'49','LayerUsesCueList':'0C','CueListCreate':'5F','LayerInsertStep':'5C','LayerReplaceStep':'67','LayerSetCueStepType':'4F','LayerSetCueStepParameters1':'50','LayerSetCueStepParameters2':'51','LayerSetCueStepParameters3':'52','LayerSetCueStepParameters4':'53','LayerSetCueStepParameters5':'54','LayerSetCueStepParameters6':'55','LayerSetDeviceID':'5E','LayerSetSustain':'40','LayerIgnoreNoteOff':'41','CueListGetDirectory':'A7','CueListRemove':'60','CueListRead':'AB','CueSceneRead':'AD','CueListWrite':'AA','CueSceneWrite':'AC','CueListRemoveStep':'62','CommonSetMIDIMode':'68','CommonMIDIBeat':'6B','CommonGetPatcher':'80','CommonSetPatcher':'81','CommonGetGain':'82','CommonSetGain':'83','CommonGetCurveTable':'84','CommonSetCurveTable':'85','CommonGetCurve1':'8C','CommonSetCurve1':'8D','CommonGetCurve2':'8E','CommonSetCurve2':'8F','CommonGetCurve3':'90','CommonSetCurve3':'91','CommonGetCurve4':'92','CommonSetCurve4':'93','CommonGetCurve5':'94','CommonSetCurve5':'95','CommonGetCurve6':'96','CommonSetCurve6':'97','CommonGetCurve7':'98','CommonSetCurve7':'99','CommonGetSlope':'86','CommonSetSlope':'87','CommonGetGlobalData':'0B','CommonSetBaudRate':'0006','CommonSetDMXOffset':'6A','CommonSetNumDMXChannels':'69','CommonSetName':'AE','CommonSetPassword':'AF','CommonSetIpConfig':'B0','CommonSetDmxIn':'B2','CommonSetUdpIn':'B8','CommonSetUdpOut':'B9','CommonSetTime':'BA','CommonGet16BitTable':'A0','CommonSet16BitTable':'A1','CommonStore16BitTable':'A2','CommonGetMIDIMapping':'A3','CommonSetMIDIMapping':'A4','CommonStoreMIDIMapping':'A5','CommonGetDigOutPatcher':'B3','CommonSetDigOutPatcher':'B4','CommonResetNonVolatile':'A8','DebugGetTotalUsage':'DD','DebugGetFreeList':'DE','DebugGetCuelistUsage':'DF'}
 
 c = ConfigParser.ConfigParser()
-c.read('config.ini')
+c.read('/opt/LanBox-JSONRPC/config.ini')
 LIGHTSERVER = (c.get('LanBox','name'), c.getint('LanBox','port'))
 PASSWORD=c.get('LanBox','password')
 
@@ -773,8 +773,8 @@ class LanboxMethods():
             ret[self._from_hex(c[:4])]=self._from_hex(c[4:6])
         return ret
     def cueListWrite (self, cueList, *stepData):
-        '''Write in the cueList step data. Expects a dict of flags per step.'''
-        cmd = commandDict['CueListWrite']+self._to_hex(cueList,4)
+        '''Write in the cueList step data. Expects a list of dicts of flags per step.'''
+        cmd = commandDict['CueListWrite']+self._to_hex(cueList,4)+self._to_hex(len(stepData),2)
         for step in stepData:
             cmd = cmd + self._AppendixB('',step)
         return self._lanbox(cmd)
