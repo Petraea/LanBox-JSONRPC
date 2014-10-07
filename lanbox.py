@@ -669,7 +669,7 @@ class LanboxMethods():
                 raise ValueError
                 raise ValueError('need startCueStep')
         return self._lanbox(cmd)
-    def layerGo (self, layer=1, cueList=1, cueStep=None):
+    def layerGo (self, cueList=1, layer=1, cueStep=None):
         '''Runs the cues set to a layer.'''
         cmd=commandDict['LayerGo']+self._to_hex(layer,2)+self._to_hex(cueList,4)
         if cueStep is not None:
