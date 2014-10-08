@@ -72,10 +72,29 @@ class LanboxMethods():
         return ret
 
     def _chunk(self, seq, n ):
-        '''Iterable handler function.'''
+        '''Iterable handler function - dismantles an iterable into iterables of length n'''
         while seq:
             yield seq[:n]
             seq = seq[n:]
+
+    def _list_range(self, l):
+        '''Yields an iterable of tuples containing the initial number of a 'run' and the number in such a 'run' e.g.:
+        [1,2,3,4,5] -> ((1,5))
+        [1,2,4,5,6] -> ((1,2),(4,3))'''
+        tmp = l[:] #Take a copy of the list
+        tmp.sort()
+        start = tmp[0]
+        currentrange = [start, 1]
+        currentnext = start+1
+        for item in tmp[1:]:
+            if currentnext == item:
+                currentnext += 1
+                currentrange[1] += 1
+            else:
+                yield tuple(currentrange)
+                currentnext = item+1
+                currentrange = [item, 1]
+        yield tuple(currentrange)
     
     def _to_hex(self, n,length=2):
         '''Convert int to hex string of set length.'''
@@ -398,7 +417,7 @@ class LanboxMethods():
         27:{'name':'goIfChannel',1:'layerId',2:'channel',3:'goValues',5:'cueStep'},
         30:{'name':'setLayerAttributes',1:'fadeEnable',2:'outputEnable',3:'soloEnable',4:'lock'},
         31:{'name':'setLayerMixMode',1:'layerId',2:'mixMode',3:'transparencyDepth1',4:'transparencyDepth2',5:'fadeTime'},
-        32:{'name':'setLayerChaseMode',1:'layerId',2:'mixMode',3:'_chaseSpeed1',4:'_chaseSpeed2',5:'fadeTime'},
+        32:{'name':'setLayerChaseMode',1:'layerId',2:'mixMode',3:'chaseSpeed1',4:'chaseSpeed2',5:'fadeTime'},
         40:{'name':'writeMidiStream',1:'midiData'},
         49:{'name':'writeSerialStream1',1:'serialData'},
         50:{'name':'writeSerialStream2',1:'serialData'},
@@ -430,7 +449,7 @@ class LanboxMethods():
                             ret[datatype] = response[2*value+1:2*value+12]
                         elif datatype == 'transparencyDepth1' or datatype == 'transparencyDepth2': #100% = 255
                             ret[datatype] = str(int(response[2*value+1:2*value+2],16)*100/255)
-                        elif datatype == '_chaseSpeed1' or datatype =='_chaseSpeed2': #_chaseSpeeds
+                        elif datatype == 'chaseSpeed1' or datatype =='chaseSpeed2': #_chaseSpeeds
                             ret[datatype] = self._chaseSpeed(response[2*value+1:2*value+2])
                         elif datatype == 'fadeType':
                             ret[datatype] = self._Table7(response[2*value+1:2*value+2])
@@ -485,7 +504,7 @@ class LanboxMethods():
                                     except:
                                         percent = 0
                                     returnlist[position] = hex(int(payload)*255/100)[2:].zfill(2)
-                                elif element.lower() == '_chaseSpeed1' or element.lower() =='_chaseSpeed2': #_chaseSpeeds
+                                elif element.lower() == 'chasespeed1' or element.lower() =='chasespeed2': #_chaseSpeeds
                                     returnlist[position] = self._chaseSpeed('',payload)
                                 elif element.lower() == 'fadetype':
                                     returnlist[position] = self._Table7('',payload)
@@ -518,6 +537,63 @@ class LanboxMethods():
     def showStepDataList(self):
         '''Show a table of valid step data arguments for each type of step data.'''
         return self._AppendixB()
+
+    def setChannels(self,lights,layer = 1):
+        '''Sets many channels as per a dictionary of levels. Returns a dict of set levels.'''
+        slights = {}
+        for light in lights:
+            if lights[light]<0: slights[str(light)] = 0
+            elif lights[light]>255: lights[str(light)] = 255
+            else: slights[str(light)] = lights[light]
+        self.channelSetData(layer,**slights)
+        return slights
+
+    def getChannels(self,lights=None,layer = 1):
+        '''Gets many channel levels as per a list/dict of levels (None implies everything in layer).
+        Returns a dictionary of levels.'''
+        cmd = {}
+        if lights is None:
+            lranges = [(1,512)]
+        if isinstance(lights,int):
+            lranges = [(lights,1)]
+        elif isinstance(lights,list):
+            lranges = self._list_range(lights) #[(start,count)...]
+        elif isinstance(lights,dict):
+            lranges = self._list_range([int(x) for x in lights.keys()]) #[(start,count)...]
+        else: return {}
+        retdict = {}
+        for rangepair in lranges:
+            rangestart = 0
+            while rangestart<rangepair[1]: #Can only do 255 at once!
+                currentrange = min(rangepair[1]-rangestart,255)
+                retdict.update(self.channelReadData(rangepair[0],rangepair[1],layer))
+                rangestart += currentrange
+        return retdict
+
+    def toggleChannel(self,channel,layer = 1):
+        '''Toggles a channel from on(any value) to off, or off to max.'''
+        level = self.getChannels(channel,layer)[channel]
+        if level > 0:
+            retval = self.setChannels({channel:0},layer)
+        else:
+            retval = self.setChannels({channel:255},layer)
+        return retval
+
+    def buildCue(self,cueList,*stepData):
+        '''A more complete constructor of a cue. Expects a list of dicts with params from Appendix B, plus a dict 'lights'
+        that contains an association of lights for each cue step.'''
+        lights = []
+        for step in stepData:
+            try:
+                lights.append(step['lights'])
+                del step['lights']
+            except:
+                lights.append({})
+        #build a new cue.
+        self.cueListWrite(cueList,stepData)
+        for n,scene in enumerate(lights):
+           if scene is not {}:
+               self.cueSceneWrite(cueList,n,scene)
 
     def commonGetAppID (self):
         '''Return the device ID and version of this Lanbox.'''
