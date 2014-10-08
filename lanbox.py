@@ -47,12 +47,12 @@ class LanboxMethods():
             s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
         data = ''
         s.connect(LIGHTSERVER)
-        data=s.recv(512)
+        data=s.recv(4096)
         while data != 'connected':
             s.sendall(PASSWORD+'\n')
-            data=s.recv(512)
+            data=s.recv(4096)
         s.sendall('*6501#') #16 bit mode on
-        data=s.recv(512)
+        data=s.recv(4096)
         return s
 
     def _lanbox(self, command,s=None):
@@ -63,7 +63,7 @@ class LanboxMethods():
             s = self._connectToLB()
         print('*'+command+'#')
         s.sendall('*'+command+'#')
-        ret = s.recv(512)
+        ret = s.recv(4096)
         print(ret)
         if ret != '?':
             ret = ret[1:-2]
@@ -110,7 +110,9 @@ class LanboxMethods():
         if isinstance(n,bool):
             if n: return 'F'*length
             else: return '0'*length
-        return hex(n)[2:].zfill(length)
+        rstr = hex(n)[2:].zfill(length)
+        if len(rstr)>length: raise ValueError
+        return rstr
     
     def _from_hex(self, n):
         '''Convert hex string to int. Not designed to return bools.'''
@@ -540,34 +542,39 @@ class LanboxMethods():
 
     def setChannels(self,lights,layer = 1):
         '''Sets many channels as per a dictionary of levels. Returns a dict of set levels.'''
+        if not isinstance(lights,dict): raise ValueError('Give me a dict of levels.')
         slights = {}
         for light in lights:
             if lights[light]<0: slights[str(light)] = 0
-            elif lights[light]>255: lights[str(light)] = 255
+            elif lights[light]>255: slights[str(light)] = 255
             else: slights[str(light)] = lights[light]
-        self.channelSetData(layer,**slights)
+        blocks = self._chunk(slights.keys(),255) #Only set 255 at a time.
+        for block in blocks:        
+            setting = {b:slights[b] for b in block}
+            self.channelSetData(setting,layer)
         return slights
 
     def getChannels(self,lights=None,layer = 1):
         '''Gets many channel levels as per a list/dict of levels (None implies everything in layer).
         Returns a dictionary of levels.'''
-        cmd = {}
         if lights is None:
-            lranges = [(1,512)]
-        if isinstance(lights,int):
+            lranges = [(1,500)]
+        elif isinstance(lights,int):
             lranges = [(lights,1)]
         elif isinstance(lights,list):
-            lranges = self._list_range(lights) #[(start,count)...]
+            lranges = self._list_range([int(x) for x in lights]) #[(start,count)...]
         elif isinstance(lights,dict):
             lranges = self._list_range([int(x) for x in lights.keys()]) #[(start,count)...]
-        else: return {}
+        else:
+            return {}
         retdict = {}
         for rangepair in lranges:
             rangestart = 0
             while rangestart<rangepair[1]: #Can only do 255 at once!
                 currentrange = min(rangepair[1]-rangestart,255)
-                retdict.update(self.channelReadData(rangepair[0],rangepair[1],layer))
+                retdict.update(self.channelReadData(int(rangepair[0])+rangestart,currentrange,layer))
                 rangestart += currentrange
+        retdict = {str(x):retdict[x] for x in retdict.keys()}
         return retdict
 
     def toggleChannel(self,channel,layer = 1):
@@ -590,7 +597,7 @@ class LanboxMethods():
             except:
                 lights.append({})
         #build a new cue.
-        self.cueListWrite(cueList,stepData)
+        self.cueListWrite(cueList,*stepData)
         for n,scene in enumerate(lights):
            if scene is not {}:
                self.cueSceneWrite(cueList,n,scene)
@@ -611,7 +618,7 @@ class LanboxMethods():
     def commonSaveData (self):
         '''Save data to the internal flash.'''
         return self._lanbox(commandDict['CommonSaveData'])
-    def channelSetData (self, layer=1,**channelData):
+    def channelSetData (self,channelData,layer=1):
         '''Set each channel to a value on each layer. Expects a dict.'''
         cmd=commandDict['ChannelSetData']
         cmd = cmd + self._to_hex(layer,2)
@@ -634,7 +641,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[startChannel+n] = self._Table3(c)
         return ret
-    def channelSetOutputEnable (self, layer=1, **channelData):
+    def channelSetOutputEnable (self,channelData,layer=1):
         '''Sets the enable flag on channel. Expects a dict{channel:bool}'''
         cmd=commandDict['ChannelSetOutputEnable']
         cmd = cmd + self._to_hex(layer,2)
@@ -643,7 +650,7 @@ class LanboxMethods():
             value = channelData[d]
             cmd = cmd + self._to_hex(channel,4)+self._to_hex(value,2)
         return self._lanbox(cmd)
-    def channelSetActive (self, layer=1, **channelData):
+    def channelSetActive (self,channelData,layer=1):
         '''Sets the active flag on channel. Expects a dict{channel:bool}'''
         cmd=commandDict['ChannelSetActive']
         cmd = cmd + self._to_hex(layer,2)
@@ -652,7 +659,7 @@ class LanboxMethods():
             value = channelData[d]
             cmd = cmd + self._to_hex(channel,4)+self._to_hex(value,2)
         return self._lanbox(cmd)
-    def channelSetSolo (self, layer=1, **channelData):
+    def channelSetSolo (self,channelData,layer=1):
         '''Sets the solo flag on channel. Expects a dict{channel:bool}'''
         cmd=commandDict['ChannelSetSolo']
         cmd = cmd + self._to_hex(layer,2)
@@ -849,17 +856,17 @@ class LanboxMethods():
             ret[self._from_hex(c[:4])]=self._from_hex(c[4:6])
         return ret
     def cueListWrite (self, cueList, *stepData):
-        '''Write in the cueList step data. Expects a list of dicts of flags per step.'''
+        '''Write in the cueList step data. Expects a dicts of flags per step.'''
         cmd = commandDict['CueListWrite']+self._to_hex(cueList,4)+self._to_hex(len(stepData),2)
         for step in stepData:
             cmd = cmd + self._AppendixB('',step)
         return self._lanbox(cmd)
-    def cueSceneWrite (self, cueList, cueStep, **channelData):
+    def cueSceneWrite (self, cueList, cueStep, channelData):
         '''Write in the cueList scene (channel values) data. Expects a dict of channels and values.'''
         cmd = commandDict['CueSceneWrite']+self._to_hex(cueList,4)+self._to_hex(cueStep,2)
         cmd = cmd + '00'+self._to_hex(len(channelData),4)
         for channel in channelData:
-            cmd = cmd +self._to_hex(channel,4)+self._to_hex(channelData[channel],4)
+            cmd = cmd +self._to_hex(channel,4)+self._to_hex(channelData[channel],2)
         return self._lanbox(cmd)
     def cueListRemoveStep (self, cueList, stepNum):
         '''Deletes a step in the cueList.'''
@@ -876,7 +883,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,4)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetPatcher (self, **dmxData):
+    def commonSetPatcher (self, dmxData):
         '''Set the DMX Patch table. Expects a dict.'''
         cmd = commandDict['CommonSetPatcher']
         for l in dmxData:
@@ -891,7 +898,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetGain (self, **dmxData):
+    def commonSetGain (self, dmxData):
         '''Sets the gain factor for channels. Expects a dict.'''
         cmd = commandDict['CommonSetGain']
         for l in dmxData:
@@ -906,7 +913,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetCurveTable (self, **dmxData):
+    def commonSetCurveTable (self, dmxData):
         '''Assigns a curve table to channels. Expects a dict, chan->table.'''
         cmd = commandDict['CommonSetCurveTable']
         for l in dmxData:
@@ -923,7 +930,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[firstVal+n]=self._from_hex(c)
         return ret
-    def commonSetCurve (self, curveNum, **curveData):
+    def commonSetCurve (self, curveNum, curveData):
         '''Sets a curve table. Expects a dict, input:output.'''
         if curveNum<1 or curveNum>8: raise ValueError
         cmd = commandDict['CommonSetCurve'+str(curveNum)]
@@ -939,7 +946,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetSlope (self, **dmxData):
+    def commonSetSlope (self, dmxData):
         '''Sets the maximum rate of change per channel. Expects a dict, channel:rate.'''
         cmd = commandDict['CommonSetSlope']
         for l in dmxData:
@@ -1049,7 +1056,7 @@ class LanboxMethods():
             ret[n]['highChannel']= self._from_hex(c[:4])
             ret[n]['lowChannel']= self._from_hex(c[4:])
         return ret
-    def commonSet16BitTable (self, *sixteenBitData):
+    def commonSet16BitTable (self, sixteenBitData):
         '''Configures the linked channel table. Expects a lists of lists, [mode, highchannel, lowchannel].'''
         cmd=commandDict['CommonSet16BitTable']
         for d in sixteenBitData:
@@ -1082,7 +1089,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,4)):
             ret[firstPort+n]=self._from_hex(c)
         return ret    
-    def commonSetDigOutPatcher (self, **portData):
+    def commonSetDigOutPatcher (self, portData):
         '''Assigns a channel to digital output. Expects a dict, port:channel'''
         cmd=commandDict['CommonSetDigOutPatcher']
         for d in portData:
