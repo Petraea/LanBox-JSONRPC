@@ -561,6 +561,8 @@ class LanboxMethods():
             lranges = [(1,500)]
         elif isinstance(lights,int):
             lranges = [(lights,1)]
+        elif isinstance(lights,str):
+            lranges = [(int(lights),1)]
         elif isinstance(lights,list):
             lranges = self._list_range([int(x) for x in lights]) #[(start,count)...]
         elif isinstance(lights,dict):
@@ -579,11 +581,11 @@ class LanboxMethods():
 
     def toggleChannel(self,channel,layer = 1):
         '''Toggles a channel from on(any value) to off, or off to max.'''
-        level = self.getChannels(channel,layer)[channel]
+        level = self.getChannels(channel,layer)[str(channel)]
         if level > 0:
-            retval = self.setChannels({channel:0},layer)
+            retval = self.setChannels({str(channel):0},layer)
         else:
-            retval = self.setChannels({channel:255},layer)
+            retval = self.setChannels({str(channel):255},layer)
         return retval
 
     def buildCue(self,cueList,*stepData):
