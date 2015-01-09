@@ -7,7 +7,7 @@ from twisted.internet import reactor, defer
 commandDict = {'CommonGetAppID':'00050000','Common16BitMode':'65','CommonReboot':'B5','CommonSaveData':'A9','ChannelSetData':'C9','ChannelReadData':'CD','ChannelReadStatus':'CE','ChannelSetOutputEnable':'CA','ChannelSetActive':'CC','ChannelSetSolo':'CB','CommonGetLayers':'B1','LayerGetStatus':'0A','LayerSetID':'45','LayerSetOutput':'48','LayerSetFading':'46','LayerSetSolo':'4A','LayerSetAutoOutput':'64','LayerSetMixMode':'47','LayerSetTransparencyDepth':'63','LayerSetLocked':'43','LayerConfigure':'44','LayerGo':'56','LayerClear':'57','LayerPause':'58','LayerResume':'59','LayerNextStep':'5A','LayerPreviousStep':'5B','LayerNextCue':'73','LayerPreviousCue':'74','LayerSetChaseMode':'4B','LayerSetChaseSpeed':'4C','LayerSetFadeType':'4D','LayerSetFadeTime':'4E','LayerSetEditRunMode':'49','LayerUsesCueList':'0C','CueListCreate':'5F','LayerInsertStep':'5C','LayerReplaceStep':'67','LayerSetCueStepType':'4F','LayerSetCueStepParameters1':'50','LayerSetCueStepParameters2':'51','LayerSetCueStepParameters3':'52','LayerSetCueStepParameters4':'53','LayerSetCueStepParameters5':'54','LayerSetCueStepParameters6':'55','LayerSetDeviceID':'5E','LayerSetSustain':'40','LayerIgnoreNoteOff':'41','CueListGetDirectory':'A7','CueListRemove':'60','CueListRead':'AB','CueSceneRead':'AD','CueListWrite':'AA','CueSceneWrite':'AC','CueListRemoveStep':'62','CommonSetMIDIMode':'68','CommonMIDIBeat':'6B','CommonGetPatcher':'80','CommonSetPatcher':'81','CommonGetGain':'82','CommonSetGain':'83','CommonGetCurveTable':'84','CommonSetCurveTable':'85','CommonGetCurve1':'8C','CommonSetCurve1':'8D','CommonGetCurve2':'8E','CommonSetCurve2':'8F','CommonGetCurve3':'90','CommonSetCurve3':'91','CommonGetCurve4':'92','CommonSetCurve4':'93','CommonGetCurve5':'94','CommonSetCurve5':'95','CommonGetCurve6':'96','CommonSetCurve6':'97','CommonGetCurve7':'98','CommonSetCurve7':'99','CommonGetSlope':'86','CommonSetSlope':'87','CommonGetGlobalData':'0B','CommonSetBaudRate':'0006','CommonSetDMXOffset':'6A','CommonSetNumDMXChannels':'69','CommonSetName':'AE','CommonSetPassword':'AF','CommonSetIpConfig':'B0','CommonSetDmxIn':'B2','CommonSetUdpIn':'B8','CommonSetUdpOut':'B9','CommonSetTime':'BA','CommonGet16BitTable':'A0','CommonSet16BitTable':'A1','CommonStore16BitTable':'A2','CommonGetMIDIMapping':'A3','CommonSetMIDIMapping':'A4','CommonStoreMIDIMapping':'A5','CommonGetDigOutPatcher':'B3','CommonSetDigOutPatcher':'B4','CommonResetNonVolatile':'A8','DebugGetTotalUsage':'DD','DebugGetFreeList':'DE','DebugGetCuelistUsage':'DF'}
 
 c = ConfigParser.ConfigParser()
-c.read('config.ini')
+c.read('/opt/LanBox-JSONRPC/config.ini')
 LIGHTSERVER = (c.get('LanBox','name'), c.getint('LanBox','port'))
 PASSWORD=c.get('LanBox','password')
 
@@ -47,12 +47,12 @@ class LanboxMethods():
             s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
         data = ''
         s.connect(LIGHTSERVER)
-        data=s.recv(512)
+        data=s.recv(4096)
         while data != 'connected':
             s.sendall(PASSWORD+'\n')
-            data=s.recv(512)
+            data=s.recv(4096)
         s.sendall('*6501#') #16 bit mode on
-        data=s.recv(512)
+        data=s.recv(4096)
         return s
 
     def _lanbox(self, command,s=None):
@@ -61,10 +61,10 @@ class LanboxMethods():
         if s is None: 
             closeafter = True
             s = self._connectToLB()
-#        print('*'+command+'#')
+        print('*'+command+'#')
         s.sendall('*'+command+'#')
-        ret = s.recv(512)
-#        print(ret)
+        ret = s.recv(4096)
+        print(ret)
         if ret != '?':
             ret = ret[1:-2]
         if closeafter:
@@ -72,10 +72,29 @@ class LanboxMethods():
         return ret
 
     def _chunk(self, seq, n ):
-        '''Iterable handler function.'''
+        '''Iterable handler function - dismantles an iterable into iterables of length n'''
         while seq:
             yield seq[:n]
             seq = seq[n:]
+
+    def _list_range(self, l):
+        '''Yields an iterable of tuples containing the initial number of a 'run' and the number in such a 'run' e.g.:
+        [1,2,3,4,5] -> ((1,5))
+        [1,2,4,5,6] -> ((1,2),(4,3))'''
+        tmp = l[:] #Take a copy of the list
+        tmp.sort()
+        start = tmp[0]
+        currentrange = [start, 1]
+        currentnext = start+1
+        for item in tmp[1:]:
+            if currentnext == item:
+                currentnext += 1
+                currentrange[1] += 1
+            else:
+                yield tuple(currentrange)
+                currentnext = item+1
+                currentrange = [item, 1]
+        yield tuple(currentrange)
     
     def _to_hex(self, n,length=2):
         '''Convert int to hex string of set length.'''
@@ -91,7 +110,9 @@ class LanboxMethods():
         if isinstance(n,bool):
             if n: return 'F'*length
             else: return '0'*length
-        return hex(n)[2:].zfill(length)
+        rstr = hex(n)[2:].zfill(length)
+        if len(rstr)>length: raise ValueError
+        return rstr
     
     def _from_hex(self, n):
         '''Convert hex string to int. Not designed to return bools.'''
@@ -217,6 +238,7 @@ class LanboxMethods():
             mode = 'unknown'
             if response in T6:
                 mode = T6[response]
+            if response == "": mode = 'off'
             return mode
         if mode != '':
             ret = ''
@@ -239,6 +261,7 @@ class LanboxMethods():
             mode = 'unknown'
             if response in T7:
                 mode = T7[response]
+            if response == "": mode = 'off'
             return mode
         if mode != '':
             ret = ''
@@ -320,7 +343,7 @@ class LanboxMethods():
             time = 0
             try:
                 if int(response,16) in range(len(ApA)):
-                    time = ApA[int(response)]
+                    time = ApA[int(response,16)]
                 return time
             except:
                 return
@@ -396,7 +419,7 @@ class LanboxMethods():
         27:{'name':'goIfChannel',1:'layerId',2:'channel',3:'goValues',5:'cueStep'},
         30:{'name':'setLayerAttributes',1:'fadeEnable',2:'outputEnable',3:'soloEnable',4:'lock'},
         31:{'name':'setLayerMixMode',1:'layerId',2:'mixMode',3:'transparencyDepth1',4:'transparencyDepth2',5:'fadeTime'},
-        32:{'name':'setLayerChaseMode',1:'layerId',2:'mixMode',3:'_chaseSpeed1',4:'_chaseSpeed2',5:'fadeTime'},
+        32:{'name':'setLayerChaseMode',1:'layerId',2:'mixMode',3:'chaseSpeed1',4:'chaseSpeed2',5:'fadeTime'},
         40:{'name':'writeMidiStream',1:'midiData'},
         49:{'name':'writeSerialStream1',1:'serialData'},
         50:{'name':'writeSerialStream2',1:'serialData'},
@@ -428,7 +451,7 @@ class LanboxMethods():
                             ret[datatype] = response[2*value+1:2*value+12]
                         elif datatype == 'transparencyDepth1' or datatype == 'transparencyDepth2': #100% = 255
                             ret[datatype] = str(int(response[2*value+1:2*value+2],16)*100/255)
-                        elif datatype == '_chaseSpeed1' or datatype =='_chaseSpeed2': #_chaseSpeeds
+                        elif datatype == 'chaseSpeed1' or datatype =='chaseSpeed2': #_chaseSpeeds
                             ret[datatype] = self._chaseSpeed(response[2*value+1:2*value+2])
                         elif datatype == 'fadeType':
                             ret[datatype] = self._Table7(response[2*value+1:2*value+2])
@@ -483,7 +506,7 @@ class LanboxMethods():
                                     except:
                                         percent = 0
                                     returnlist[position] = hex(int(payload)*255/100)[2:].zfill(2)
-                                elif element.lower() == '_chaseSpeed1' or element.lower() =='_chaseSpeed2': #_chaseSpeeds
+                                elif element.lower() == 'chasespeed1' or element.lower() =='chasespeed2': #_chaseSpeeds
                                     returnlist[position] = self._chaseSpeed('',payload)
                                 elif element.lower() == 'fadetype':
                                     returnlist[position] = self._Table7('',payload)
@@ -517,6 +540,70 @@ class LanboxMethods():
         '''Show a table of valid step data arguments for each type of step data.'''
         return self._AppendixB()
 
+    def setChannels(self,lights,layer = 1):
+        '''Sets many channels as per a dictionary of levels. Returns a dict of set levels.'''
+        if not isinstance(lights,dict): raise ValueError('Give me a dict of levels.')
+        slights = {}
+        for light in lights:
+            if lights[light]<0: slights[str(light)] = 0
+            elif lights[light]>255: slights[str(light)] = 255
+            else: slights[str(light)] = lights[light]
+        blocks = self._chunk(slights.keys(),255) #Only set 255 at a time.
+        for block in blocks:        
+            setting = {b:slights[b] for b in block}
+            self.channelSetData(setting,layer)
+        return slights
+
+    def getChannels(self,lights=None,layer = 1):
+        '''Gets many channel levels as per a list/dict of levels (None implies everything in layer).
+        Returns a dictionary of levels.'''
+        if lights is None:
+            lranges = [(1,500)]
+        elif isinstance(lights,int):
+            lranges = [(lights,1)]
+        elif isinstance(lights,str):
+            lranges = [(int(lights),1)]
+        elif isinstance(lights,list):
+            lranges = self._list_range([int(x) for x in lights]) #[(start,count)...]
+        elif isinstance(lights,dict):
+            lranges = self._list_range([int(x) for x in lights.keys()]) #[(start,count)...]
+        else:
+            return {}
+        retdict = {}
+        for rangepair in lranges:
+            rangestart = 0
+            while rangestart<rangepair[1]: #Can only do 255 at once!
+                currentrange = min(rangepair[1]-rangestart,255)
+                retdict.update(self.channelReadData(int(rangepair[0])+rangestart,currentrange,layer))
+                rangestart += currentrange
+        retdict = {str(x):retdict[x] for x in retdict.keys()}
+        return retdict
+
+    def toggleChannel(self,channel,layer = 1):
+        '''Toggles a channel from on(any value) to off, or off to max.'''
+        level = self.getChannels(channel,layer)[str(channel)]
+        if level > 0:
+            retval = self.setChannels({str(channel):0},layer)
+        else:
+            retval = self.setChannels({str(channel):255},layer)
+        return retval
+
+    def buildCue(self,cueList,*stepData):
+        '''A more complete constructor of a cue. Expects a list of dicts with params from Appendix B, plus a dict 'lights'
+        that contains an association of lights for each cue step.'''
+        lights = []
+        for step in stepData:
+            try:
+                lights.append(step['lights'])
+                del step['lights']
+            except:
+                lights.append({})
+        #build a new cue.
+        self.cueListWrite(cueList,*stepData)
+        for n,scene in enumerate(lights):
+           if scene is not {}:
+               self.cueSceneWrite(cueList,n,scene)
+
     def commonGetAppID (self):
         '''Return the device ID and version of this Lanbox.'''
         ret = {}
@@ -533,7 +620,7 @@ class LanboxMethods():
     def commonSaveData (self):
         '''Save data to the internal flash.'''
         return self._lanbox(commandDict['CommonSaveData'])
-    def channelSetData (self, layer=1,**channelData):
+    def channelSetData (self,channelData,layer=1):
         '''Set each channel to a value on each layer. Expects a dict.'''
         cmd=commandDict['ChannelSetData']
         cmd = cmd + self._to_hex(layer,2)
@@ -556,7 +643,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[startChannel+n] = self._Table3(c)
         return ret
-    def channelSetOutputEnable (self, layer=1, **channelData):
+    def channelSetOutputEnable (self,channelData,layer=1):
         '''Sets the enable flag on channel. Expects a dict{channel:bool}'''
         cmd=commandDict['ChannelSetOutputEnable']
         cmd = cmd + self._to_hex(layer,2)
@@ -565,7 +652,7 @@ class LanboxMethods():
             value = channelData[d]
             cmd = cmd + self._to_hex(channel,4)+self._to_hex(value,2)
         return self._lanbox(cmd)
-    def channelSetActive (self, layer=1, **channelData):
+    def channelSetActive (self,channelData,layer=1):
         '''Sets the active flag on channel. Expects a dict{channel:bool}'''
         cmd=commandDict['ChannelSetActive']
         cmd = cmd + self._to_hex(layer,2)
@@ -574,7 +661,7 @@ class LanboxMethods():
             value = channelData[d]
             cmd = cmd + self._to_hex(channel,4)+self._to_hex(value,2)
         return self._lanbox(cmd)
-    def channelSetSolo (self, layer=1, **channelData):
+    def channelSetSolo (self,channelData,layer=1):
         '''Sets the solo flag on channel. Expects a dict{channel:bool}'''
         cmd=commandDict['ChannelSetSolo']
         cmd = cmd + self._to_hex(layer,2)
@@ -587,9 +674,10 @@ class LanboxMethods():
         '''Returns a dict of all layers with nested layer attributes'''
         ret = {}
         response = self._lanbox(commandDict['CommonGetLayers'])
-        for c in self._chunk(response,24):
+        for n, c in enumerate(self._chunk(response,24)):
             layer = self._from_hex(c[:2])
             ret[layer]={}
+            ret[layer]['mixOrder']=n
             ret[layer]['layerID']=self._from_hex(c[2:4])
             ret[layer]['layerAttr']=self._Table4(c[4:6])
             ret[layer]['cueList']=self._from_hex(c[6:10])
@@ -612,18 +700,18 @@ class LanboxMethods():
         ret['remainingHoldTime'] = self._from_hex(response[14:18])*0.05
         ret['activeCueList'] = self._from_hex(response[18:22])
         ret['activeCueStep'] = self._from_hex(response[22:24])
-        ret['chaseMode'] = self._Table6(response[22:24])
-        ret['layerSpeed'] = self._chaseSpeed(response[24:26])
-        ret['fadeType'] = self._Table7(response[26:28])
-        ret['fadeTime'] = self._AppendixA(response[28:30])
-        ret['cueStepFadeTime'] = self._AppendixA(response[30:32])
-        ret['remainingFadeTime'] = self._from_hex(response[32:36])*0.05
-        ret['layerTransparency'] = self._from_hex(response[36:38])/2.55
-        ret['loadingIndication'] = self._from_hex(response[38:40])*0.05/255
-        ret['pauseStatus'] = bool(self._from_hex(response[40:42]))
-        ret['sysExDeviceId'] = self._from_hex(response[42:44])
-        ret['autoStatus'] = bool(self._from_hex(response[42:44]))
-        ret['currentCueStep'] = self._AppendixB(response[44:58])
+        ret['chaseMode'] = self._Table6(response[24:26])
+        ret['layerSpeed'] = self._chaseSpeed(response[26:28])
+        ret['fadeType'] = self._Table7(response[28:30])
+        ret['fadeTime'] = self._AppendixA(response[30:32])
+        ret['cueStepFadeTime'] = self._AppendixA(response[32:34])
+        ret['remainingFadeTime'] = self._from_hex(response[34:38])*0.05
+        ret['layerTransparency'] = self._from_hex(response[38:40])/2.55
+        ret['loadingIndication'] = self._from_hex(response[40:42])*0.05/255
+        ret['pauseStatus'] = bool(self._from_hex(response[42:44]))
+        ret['sysExDeviceId'] = self._from_hex(response[44:46])
+        ret['autoStatus'] = bool(self._from_hex(response[46:48]))
+        ret['currentCueStep'] = self._AppendixB(response[48:60])
         return ret
     def layerSetID (self, oldLayer, newLayer):
         '''Sets a layer ID'''
@@ -666,7 +754,7 @@ class LanboxMethods():
                 raise ValueError
                 raise ValueError('need startCueStep')
         return self._lanbox(cmd)
-    def layerGo (self, layer=1, cueList=1, cueStep=None):
+    def layerGo (self, cueList=1, layer=1, cueStep=None):
         '''Runs the cues set to a layer.'''
         cmd=commandDict['LayerGo']+self._to_hex(layer,2)+self._to_hex(cueList,4)
         if cueStep is not None:
@@ -770,17 +858,17 @@ class LanboxMethods():
             ret[self._from_hex(c[:4])]=self._from_hex(c[4:6])
         return ret
     def cueListWrite (self, cueList, *stepData):
-        '''Write in the cueList step data. Expects a dict of flags per step.'''
-        cmd = commandDict['CueListWrite']+self._to_hex(cueList,4)
+        '''Write in the cueList step data. Expects a dicts of flags per step.'''
+        cmd = commandDict['CueListWrite']+self._to_hex(cueList,4)+self._to_hex(len(stepData),2)
         for step in stepData:
             cmd = cmd + self._AppendixB('',step)
         return self._lanbox(cmd)
-    def cueSceneWrite (self, cueList, cueStep, **channelData):
+    def cueSceneWrite (self, cueList, cueStep, channelData):
         '''Write in the cueList scene (channel values) data. Expects a dict of channels and values.'''
         cmd = commandDict['CueSceneWrite']+self._to_hex(cueList,4)+self._to_hex(cueStep,2)
         cmd = cmd + '00'+self._to_hex(len(channelData),4)
         for channel in channelData:
-            cmd = cmd +self._to_hex(channel,4)+self._to_hex(channelData[channel],4)
+            cmd = cmd +self._to_hex(channel,4)+self._to_hex(channelData[channel],2)
         return self._lanbox(cmd)
     def cueListRemoveStep (self, cueList, stepNum):
         '''Deletes a step in the cueList.'''
@@ -797,7 +885,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,4)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetPatcher (self, **dmxData):
+    def commonSetPatcher (self, dmxData):
         '''Set the DMX Patch table. Expects a dict.'''
         cmd = commandDict['CommonSetPatcher']
         for l in dmxData:
@@ -812,7 +900,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetGain (self, **dmxData):
+    def commonSetGain (self, dmxData):
         '''Sets the gain factor for channels. Expects a dict.'''
         cmd = commandDict['CommonSetGain']
         for l in dmxData:
@@ -827,7 +915,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetCurveTable (self, **dmxData):
+    def commonSetCurveTable (self, dmxData):
         '''Assigns a curve table to channels. Expects a dict, chan->table.'''
         cmd = commandDict['CommonSetCurveTable']
         for l in dmxData:
@@ -844,7 +932,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[firstVal+n]=self._from_hex(c)
         return ret
-    def commonSetCurve (self, curveNum, **curveData):
+    def commonSetCurve (self, curveNum, curveData):
         '''Sets a curve table. Expects a dict, input:output.'''
         if curveNum<1 or curveNum>8: raise ValueError
         cmd = commandDict['CommonSetCurve'+str(curveNum)]
@@ -860,7 +948,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,2)):
             ret[dmxChan+n]=self._from_hex(c)
         return ret
-    def commonSetSlope (self, **dmxData):
+    def commonSetSlope (self, dmxData):
         '''Sets the maximum rate of change per channel. Expects a dict, channel:rate.'''
         cmd = commandDict['CommonSetSlope']
         for l in dmxData:
@@ -970,7 +1058,7 @@ class LanboxMethods():
             ret[n]['highChannel']= self._from_hex(c[:4])
             ret[n]['lowChannel']= self._from_hex(c[4:])
         return ret
-    def commonSet16BitTable (self, *sixteenBitData):
+    def commonSet16BitTable (self, sixteenBitData):
         '''Configures the linked channel table. Expects a lists of lists, [mode, highchannel, lowchannel].'''
         cmd=commandDict['CommonSet16BitTable']
         for d in sixteenBitData:
@@ -1003,7 +1091,7 @@ class LanboxMethods():
         for n,c in enumerate(self._chunk(response,4)):
             ret[firstPort+n]=self._from_hex(c)
         return ret    
-    def commonSetDigOutPatcher (self, **portData):
+    def commonSetDigOutPatcher (self, portData):
         '''Assigns a channel to digital output. Expects a dict, port:channel'''
         cmd=commandDict['CommonSetDigOutPatcher']
         for d in portData:

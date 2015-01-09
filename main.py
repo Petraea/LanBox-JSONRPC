@@ -1,12 +1,16 @@
+#!/usr/bin/python
 from twisted.internet.protocol import Protocol, Factory
 from twisted.protocols.basic import LineReceiver
 from twisted.internet import reactor
 import json
 import inspect
+import ConfigParser
 
 import lanbox
 
-PORT = 4444
+c = ConfigParser.ConfigParser()
+c.read('/opt/LanBox-JSONRPC/config.ini')
+PORT = c.getint('JSONRPC','port')
 
 class Methods():
     def __init__(self):
@@ -63,7 +67,14 @@ class JSONRPC(LineReceiver):
     def lineReceived(self, data):
         data = data.lstrip('\r')
         result = self.read_rpc(data)
-        self.sendLine(result)
+        if len(result) > self.MAX_LENGTH: #buffer overflow imminent!
+            print ('buffer exceeding sensed. Directing to transport.')
+            self.transport.write(result+'\n')
+        else:
+            self.sendLine(result)
+
+    def lineLengthExceeded(self, line):
+        print ('buffer exceeded')
 
     def read_rpc(self, jsonstr):
         '''Parses JSONRPC strings and performs the appropriate actions.'''
@@ -124,7 +135,7 @@ class JSONRPC(LineReceiver):
         if isinstance(params,list): #by position reference
             if len(params)<len(methdata['args'])-len(methdata['defaults']):
                 return(self.json_error(-32602,id))
-            if len(params)>len(methdata['args']) and not bool(methdata['varargs']):
+            if len(params)>len(methdata['args']) and methdata['varargs'] is None:
                 return(self.json_error(-32602,id))
             try:
                 ret['result']=methdata['function'](*params)
@@ -135,7 +146,7 @@ class JSONRPC(LineReceiver):
             for p in methdata['args'][:len(methdata['args'])-len(methdata['defaults'])]:
                 if p not in params:
                     return(self.json_error(-32602,id))
-            if len(params)>len(methdata['args']) and not bool(methdata['kwargs']):
+            if len(params)>len(methdata['args']) and methdata['kwargs'] is None:
                 return(self.json_error(-32602,id))
             try:
                 ret['result']=methdata['function'](**params)
