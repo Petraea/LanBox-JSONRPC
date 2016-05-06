@@ -1164,6 +1164,10 @@ class LanboxMethods():
         '''Return this named this light list from the middleware. Returns a dict of lights.'''
         return self.scene.get(sceneName)
 
+    def getScenes (self):
+        '''Return the list of all light scenes from the middleware.'''
+        return self.scene.scenes.keys()
+
     def showScene (self,sceneName,lights={},layer = 1):
         '''Output this named light list. Can be modified with a list of lights to filter. Returns lights changed.'''
         scene = self.scene.get(sceneName)
