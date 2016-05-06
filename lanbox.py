@@ -3,6 +3,7 @@ import ConfigParser
 from twisted.internet.protocol import Protocol, ReconnectingClientFactory
 from twisted.protocols.basic import LineReceiver
 from twisted.internet import reactor, defer
+import json,os
 
 commandDict = {'CommonGetAppID':'00050000','Common16BitMode':'65','CommonReboot':'B5','CommonSaveData':'A9','ChannelSetData':'C9','ChannelReadData':'CD','ChannelReadStatus':'CE','ChannelSetOutputEnable':'CA','ChannelSetActive':'CC','ChannelSetSolo':'CB','CommonGetLayers':'B1','LayerGetStatus':'0A','LayerSetID':'45','LayerSetOutput':'48','LayerSetFading':'46','LayerSetSolo':'4A','LayerSetAutoOutput':'64','LayerSetMixMode':'47','LayerSetTransparencyDepth':'63','LayerSetLocked':'43','LayerConfigure':'44','LayerGo':'56','LayerClear':'57','LayerPause':'58','LayerResume':'59','LayerNextStep':'5A','LayerPreviousStep':'5B','LayerNextCue':'73','LayerPreviousCue':'74','LayerSetChaseMode':'4B','LayerSetChaseSpeed':'4C','LayerSetFadeType':'4D','LayerSetFadeTime':'4E','LayerSetEditRunMode':'49','LayerUsesCueList':'0C','CueListCreate':'5F','LayerInsertStep':'5C','LayerReplaceStep':'67','LayerSetCueStepType':'4F','LayerSetCueStepParameters1':'50','LayerSetCueStepParameters2':'51','LayerSetCueStepParameters3':'52','LayerSetCueStepParameters4':'53','LayerSetCueStepParameters5':'54','LayerSetCueStepParameters6':'55','LayerSetDeviceID':'5E','LayerSetSustain':'40','LayerIgnoreNoteOff':'41','CueListGetDirectory':'A7','CueListRemove':'60','CueListRead':'AB','CueSceneRead':'AD','CueListWrite':'AA','CueSceneWrite':'AC','CueListRemoveStep':'62','CommonSetMIDIMode':'68','CommonMIDIBeat':'6B','CommonGetPatcher':'80','CommonSetPatcher':'81','CommonGetGain':'82','CommonSetGain':'83','CommonGetCurveTable':'84','CommonSetCurveTable':'85','CommonGetCurve1':'8C','CommonSetCurve1':'8D','CommonGetCurve2':'8E','CommonSetCurve2':'8F','CommonGetCurve3':'90','CommonSetCurve3':'91','CommonGetCurve4':'92','CommonSetCurve4':'93','CommonGetCurve5':'94','CommonSetCurve5':'95','CommonGetCurve6':'96','CommonSetCurve6':'97','CommonGetCurve7':'98','CommonSetCurve7':'99','CommonGetSlope':'86','CommonSetSlope':'87','CommonGetGlobalData':'0B','CommonSetBaudRate':'0006','CommonSetDMXOffset':'6A','CommonSetNumDMXChannels':'69','CommonSetName':'AE','CommonSetPassword':'AF','CommonSetIpConfig':'B0','CommonSetDmxIn':'B2','CommonSetUdpIn':'B8','CommonSetUdpOut':'B9','CommonSetTime':'BA','CommonGet16BitTable':'A0','CommonSet16BitTable':'A1','CommonStore16BitTable':'A2','CommonGetMIDIMapping':'A3','CommonSetMIDIMapping':'A4','CommonStoreMIDIMapping':'A5','CommonGetDigOutPatcher':'B3','CommonSetDigOutPatcher':'B4','CommonResetNonVolatile':'A8','DebugGetTotalUsage':'DD','DebugGetFreeList':'DE','DebugGetCuelistUsage':'DF'}
 
@@ -10,6 +11,19 @@ c = ConfigParser.ConfigParser()
 c.read('/opt/LanBox-JSONRPC/config.ini')
 LIGHTSERVER = (c.get('LanBox','name'), c.getint('LanBox','port'))
 PASSWORD=c.get('LanBox','password')
+
+class Scene():
+    '''Functions to recover/record light patterns by name outside the LanBox.'''
+    def __init__(self):
+        self.config='/opt/LanBox-JSONRPC/scenes.json'
+        try: self.scenes=json.load(open(self.config,'r'))
+        except: self.scenes={}
+    def get(self,scene):
+        try: return self.scenes[scene]
+        except: return {}
+    def set(self,scene,lights):
+        self.scenes[scene]=lights
+        json.dump(self.scenes, open(self.config,'w'),sort_keys=True,indent=4,separators=(',',':'))
 
 class lanbox(Protocol):
     '''Prototype async handler. Unfinished.'''
@@ -40,7 +54,10 @@ class LanboxFactory(ReconnectingClientFactory):
         return Lanbox(self.methods)
 
 class LanboxMethods():
-    '''Lanbox methods from the manual.'''
+    '''Lanbox methods from the manual, plus a few friendly extensions..'''
+    def __init__(self):
+        self.scene=Scene()
+
     def _connectToLB(self, s=None):
         '''Handler for connecting to the lanbox. Blocking.'''
         if s is None:
@@ -578,6 +595,20 @@ class LanboxMethods():
                 rangestart += currentrange
         retdict = {str(x):retdict[x] for x in retdict.keys()}
         return retdict
+
+    def fadeTo(self, todict, time = 0.5, cueList=2,layer = 1):
+        '''Sets up a crossfade between current light values and the recieved dictionary.'''
+        #get the current light values
+        fromdict = self.getChannels(todict)
+        #build a new cue.
+        step1={'name':'showscene','fadetype':'crossfade','fadetime':time,'holdtime':0}
+        step2={'name':'showscene','fadetype':'crossfade','fadetime':time,'holdtime':float('inf')}
+        self.cueListWrite(cueList,step1,step2)
+        #transmit the cue steps
+        self.cueSceneWrite(cueList,1,fromdict)
+        self.cueSceneWrite(cueList,2,todict)
+        #execute the cue
+        self.layerGo(cueList)
 
     def toggleChannel(self,channel,layer = 1):
         '''Toggles a channel from on(any value) to off, or off to max.'''
@@ -1125,3 +1156,28 @@ class LanboxMethods():
         ret['bytesUsed'] = self._from_hex(response[12:])
         return ret
     
+    def setScene (self,sceneName,lights):
+        '''Store this light list on the middleware. Expects a dict of lights. Returns nothing.'''
+        self.scene.set(sceneName,lights)
+
+    def getScene (self,sceneName):
+        '''Return this named this light list from the middleware. Returns a dict of lights.'''
+        return self.scene.get(sceneName)
+
+    def showScene (self,sceneName,lights={},layer = 1):
+        '''Output this named light list. Can be modified with a list of lights to filter. Returns lights changed.'''
+        scene = self.scene.get(sceneName)
+        if len(lights)>0:
+            for l in scene.copy():
+                if l not in lights:
+                    del scene[l]
+        return self.setChannels(scene,layer)
+
+    def fadeToScene (self,sceneName,lights={},time = 0.5,cuelist = 2,layer = 1):
+        '''Fade to this named light list. Can be modified with a list of lights to filter. Returns lights changed.'''
+        scene = self.scene.get(sceneName)
+        if len(lights)>0:
+            for l in scene.copy():
+                if l not in lights:
+                    del scene[l]
+        return self.fadeTo(scene,time,cueList,layer)
