@@ -19,10 +19,10 @@ class Scene():
         try: self.scenes=json.load(open(self.config,'r'))
         except: self.scenes={}
     def get(self,scene):
-        try: return self.scenes[scene]
+        try: return self.scenes[scene.lower()]
         except: return {}
     def set(self,scene,lights):
-        self.scenes[scene]=lights
+        self.scenes[scene.lower()]=lights
         json.dump(self.scenes, open(self.config,'w'),sort_keys=True,indent=4,separators=(',',':'))
 
 class lanbox(Protocol):
@@ -1177,7 +1177,7 @@ class LanboxMethods():
                     del scene[l]
         return self.setChannels(scene,layer)
 
-    def fadeToScene (self,sceneName,lights={},time = 0.5,cuelist = 2,layer = 1):
+    def fadeToScene (self,sceneName,lights={},time = 0.5,cueList = 2,layer = 1):
         '''Fade to this named light list. Can be modified with a list of lights to filter. Returns lights changed.'''
         scene = self.scene.get(sceneName)
         if len(lights)>0:
